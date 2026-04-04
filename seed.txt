@@ -1,0 +1,3 @@
+Admin: admin@foodhub.com / admin123
+Sample provider: provider1@foodhub.com / provider123
+Sample customer: customer1@foodhub.com / customer123

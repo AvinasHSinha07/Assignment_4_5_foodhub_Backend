@@ -1,8 +1,24 @@
 import app from "./app";
+import { env } from "./config/env";
 
-const PORT = process.env.PORT || 5000;
+const PORT = env.PORT;
 
-app.listen(PORT, () => {
-  // eslint-disable-next-line no-console
+const server = app.listen(PORT, () => {
   console.log(`FoodHub backend running on http://localhost:${PORT}`);
+});
+
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received. Closing server.");
+  server.close(() => {
+    console.log("HTTP server closed.");
+  });
+});
+
+process.on("unhandledRejection", (error) => {
+  console.error("Unhandled Rejection detected:", error);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception detected:", error);
+  process.exit(1);
 });
