@@ -6,6 +6,7 @@ import { env } from "./config/env";
 import { IndexRoutes } from "./app/routes";
 import { globalErrorHandler } from "./app/middleware/globalErrorHandler";
 import { notFound } from "./app/middleware/notFound";
+import { PaymentController } from "./app/module/payment/payment.controller";
 import { getBetterAuthHandler } from "./lib/betterAuth";
 
 const app = express();
@@ -22,6 +23,12 @@ app.all("/api/v1/auth/core/*splat", async (req, res, next) => {
     return next(error);
   }
 });
+
+app.post(
+  "/api/v1/payments/webhook",
+  express.raw({ type: "application/json" }),
+  PaymentController.handleWebhook,
+);
 
 app.use(express.json());
 
