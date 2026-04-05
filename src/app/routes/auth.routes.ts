@@ -10,6 +10,7 @@ const router = Router();
 router.post("/auth/register", validateRequest(registerSchema), AuthController.register);
 router.post("/auth/login", validateRequest(loginSchema), AuthController.login);
 router.post("/auth/logout", AuthController.logout);
+router.post("/auth/refresh", AuthController.refresh);
 router.get(
 	"/auth/me",
 	checkAuth(UserRole.CUSTOMER, UserRole.PROVIDER, UserRole.ADMIN),

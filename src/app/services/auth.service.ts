@@ -1,104 +1,183 @@
-import bcrypt from "bcryptjs";
-import type { User } from "@prisma/client";
+import { UserRole, UserStatus } from "@prisma/client";
+import type { IncomingHttpHeaders } from "http";
+import { callBetterAuthEndpoint, getBetterAuthSession, type TCallBetterAuthEndpointResult } from "../../lib/betterAuth";
 import { prisma } from "../../lib/prisma";
 import { AppError } from "../utils/AppError";
-import {
-  authCookieName,
-  getAuthCookieOptions,
-  signAuthToken,
-  type AuthTokenPayload,
-} from "../utils/auth";
 import type { LoginInput, RegisterInput } from "../validations/auth.validation";
 
-const selectUser = {
-  id: true,
-  name: true,
-  email: true,
-  role: true,
-  status: true,
-  phone: true,
-  avatar: true,
-  createdAt: true,
-  updatedAt: true,
-} satisfies Record<string, boolean>;
-
-type PublicUser = Omit<User, "password">;
-
-const sanitizeUser = (user: User): PublicUser => {
-  const { password: _password, ...safeUser } = user;
-  return safeUser;
-};
-
-const buildTokenPayload = (user: Pick<User, "id" | "email" | "role">): AuthTokenPayload => ({
-  userId: user.id,
-  email: user.email,
-  role: user.role,
+const mapSessionUser = (user: Record<string, unknown>) => ({
+  id: String(user.id),
+  name: String(user.name),
+  email: String(user.email),
+  role: user.role as UserRole,
+  status: user.status as UserStatus,
+  phone: user.phone ? String(user.phone) : null,
+  avatar: user.image ? String(user.image) : null,
+  createdAt: user.createdAt,
+  updatedAt: user.updatedAt,
 });
 
-export const registerUser = async (input: RegisterInput) => {
-  const existingUser = await prisma.user.findUnique({
-    where: { email: input.email },
-  });
-
-  if (existingUser) {
-    throw new AppError(409, "Email already exists");
+const extractMessageFromBody = (body: unknown, fallback: string) => {
+  if (!body || typeof body !== "object") {
+    return fallback;
   }
 
-  const passwordHash = await bcrypt.hash(input.password, 10);
+  if ("message" in body && typeof body.message === "string") {
+    return body.message;
+  }
 
-  const user = await prisma.user.create({
-    data: {
-      name: input.name.trim(),
-      email: input.email,
-      password: passwordHash,
-      role: input.role,
-      phone: input.phone?.trim() || null,
+  return fallback;
+};
+
+const ensureRoleCanRegister = (role: UserRole) => {
+  if (role === UserRole.ADMIN) {
+    throw new AppError(403, "You cannot register as admin");
+  }
+};
+
+const getUserIdFromAuthBody = (body: unknown) => {
+  if (!body || typeof body !== "object") {
+    return null;
+  }
+
+  const maybeUser = (body as { user?: unknown }).user;
+
+  if (!maybeUser || typeof maybeUser !== "object") {
+    return null;
+  }
+
+  const maybeId = (maybeUser as { id?: unknown }).id;
+
+  if (typeof maybeId !== "string" || maybeId.length === 0) {
+    return null;
+  }
+
+  return maybeId;
+};
+
+export const syncUserPasswordFromCredentialAccount = async (userId: string) => {
+  const credentialAccount = await prisma.account.findFirst({
+    where: {
+      userId,
+      providerId: "credential",
+      password: {
+        not: null,
+      },
+    },
+    select: {
+      password: true,
+    },
+    orderBy: {
+      updatedAt: "desc",
     },
   });
 
-  const token = signAuthToken(buildTokenPayload(user));
-
-  return {
-    user: sanitizeUser(user),
-    token,
-    cookieName: authCookieName,
-    cookieOptions: getAuthCookieOptions(),
-  };
-};
-
-export const loginUser = async (input: LoginInput) => {
-  const user = await prisma.user.findUnique({
-    where: { email: input.email },
-  });
-
-  if (!user) {
-    throw new AppError(401, "Invalid email or password");
+  if (!credentialAccount?.password) {
+    return false;
   }
 
-  const isPasswordValid = await bcrypt.compare(input.password, user.password);
-  if (!isPasswordValid) {
-    throw new AppError(401, "Invalid email or password");
-  }
-
-  const token = signAuthToken(buildTokenPayload(user));
-
-  return {
-    user: sanitizeUser(user),
-    token,
-    cookieName: authCookieName,
-    cookieOptions: getAuthCookieOptions(),
-  };
-};
-
-export const getCurrentUser = async (userId: string) => {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: selectUser,
+  await prisma.user.update({
+    where: {
+      id: userId,
+    },
+    data: {
+      password: credentialAccount.password,
+    },
   });
 
-  if (!user) {
-    throw new AppError(404, "User not found");
+  return true;
+};
+
+export const syncUserPasswordFromAuthBody = async (body: unknown) => {
+  const userId = getUserIdFromAuthBody(body);
+
+  if (!userId) {
+    return false;
+  }
+
+  return syncUserPasswordFromCredentialAccount(userId);
+};
+
+export const registerUser = async (
+  input: RegisterInput,
+  requestHeaders: IncomingHttpHeaders,
+): Promise<TCallBetterAuthEndpointResult> => {
+  ensureRoleCanRegister(input.role);
+
+  return callBetterAuthEndpoint({
+    path: "/sign-up/email",
+    method: "POST",
+    requestHeaders,
+    body: {
+      name: input.name.trim(),
+      email: input.email,
+      password: input.password,
+      role: input.role,
+      phone: input.phone?.trim() || undefined,
+    },
+  });
+};
+
+export const loginUser = async (
+  input: LoginInput,
+  requestHeaders: IncomingHttpHeaders,
+): Promise<TCallBetterAuthEndpointResult> => {
+  return callBetterAuthEndpoint({
+    path: "/sign-in/email",
+    method: "POST",
+    requestHeaders,
+    body: {
+      email: input.email,
+      password: input.password,
+      rememberMe: true,
+    },
+  });
+};
+
+export const logoutUser = async (
+  requestHeaders: IncomingHttpHeaders,
+): Promise<TCallBetterAuthEndpointResult> => {
+  return callBetterAuthEndpoint({
+    path: "/sign-out",
+    method: "POST",
+    requestHeaders,
+  });
+};
+
+export const refreshUserSession = async (requestHeaders: IncomingHttpHeaders) => {
+  const session = (await getBetterAuthSession(requestHeaders)) as {
+    user?: Record<string, unknown>;
+  } | null;
+
+  if (!session?.user) {
+    throw new AppError(401, "Unauthorized access");
+  }
+
+  const user = mapSessionUser(session.user);
+
+  if (user.status === UserStatus.SUSPENDED) {
+    throw new AppError(403, "Your account is suspended");
   }
 
   return user;
 };
+
+export const getCurrentUser = async (requestHeaders: IncomingHttpHeaders) => {
+  const session = (await getBetterAuthSession(requestHeaders)) as {
+    user?: Record<string, unknown>;
+  } | null;
+
+  if (!session?.user) {
+    throw new AppError(401, "Unauthorized access");
+  }
+
+  const user = mapSessionUser(session.user);
+
+  if (user.status === UserStatus.SUSPENDED) {
+    throw new AppError(403, "Your account is suspended");
+  }
+
+  return user;
+};
+
+export const getBetterAuthMessage = extractMessageFromBody;

@@ -9,13 +9,21 @@ export type AuthTokenPayload = {
   role: UserRole;
 };
 
-const cookieName = "foodhub_token";
+type TAuthTokenType = "access" | "refresh";
+
+type TSignedAuthTokenPayload = AuthTokenPayload & {
+  tokenType: TAuthTokenType;
+};
+
+const accessCookieNameValue = "foodhub_access_token";
+const refreshCookieNameValue = "foodhub_refresh_token";
+const legacyCookieName = "foodhub_token";
 
 const parseJwtExpiresInToMs = (expiresIn: string) => {
-  const match = expiresIn.match(/^(\d+)([smhd])$/);
+  const match = expiresIn.match(/^(\d+)([smhdw])$/);
 
   if (!match) {
-    return 7 * 24 * 60 * 60 * 1000;
+    return 15 * 60 * 1000;
   }
 
   const value = Number(match[1]);
@@ -26,25 +34,74 @@ const parseJwtExpiresInToMs = (expiresIn: string) => {
     m: 60 * 1000,
     h: 60 * 60 * 1000,
     d: 24 * 60 * 60 * 1000,
+    w: 7 * 24 * 60 * 60 * 1000,
   };
 
   return value * unitToMs[unit];
 };
 
-export const signAuthToken = (payload: AuthTokenPayload) =>
-  jwt.sign(payload, env.JWT_SECRET, {
-    expiresIn: env.JWT_EXPIRES_IN as SignOptions["expiresIn"],
-  });
+const signToken = (
+  payload: AuthTokenPayload,
+  tokenType: TAuthTokenType,
+  secret: string,
+  expiresIn: string,
+) =>
+  jwt.sign(
+    {
+      ...payload,
+      tokenType,
+    },
+    secret,
+    {
+      expiresIn: expiresIn as SignOptions["expiresIn"],
+    },
+  );
 
-export const verifyAuthToken = (token: string) =>
-  jwt.verify(token, env.JWT_SECRET) as AuthTokenPayload;
+const verifyToken = (token: string, expectedTokenType: TAuthTokenType, secret: string) => {
+  const decoded = jwt.verify(token, secret) as TSignedAuthTokenPayload;
 
-export const getAuthCookieOptions = () => ({
+  if (decoded.tokenType !== expectedTokenType) {
+    throw new Error("Invalid token type");
+  }
+
+  return {
+    userId: decoded.userId,
+    email: decoded.email,
+    role: decoded.role,
+  } satisfies AuthTokenPayload;
+};
+
+export const signAccessToken = (payload: AuthTokenPayload) =>
+  signToken(payload, "access", env.JWT_SECRET, env.JWT_EXPIRES_IN);
+
+export const signRefreshToken = (payload: AuthTokenPayload) =>
+  signToken(payload, "refresh", env.JWT_REFRESH_SECRET, env.JWT_REFRESH_EXPIRES_IN);
+
+export const verifyAccessToken = (token: string) => verifyToken(token, "access", env.JWT_SECRET);
+
+export const verifyRefreshToken = (token: string) =>
+  verifyToken(token, "refresh", env.JWT_REFRESH_SECRET);
+
+const getCookieOptions = (expiresIn: string) => ({
   httpOnly: true,
   sameSite: "lax" as const,
   secure: env.NODE_ENV === "production",
-  maxAge: parseJwtExpiresInToMs(env.JWT_EXPIRES_IN),
+  maxAge: parseJwtExpiresInToMs(expiresIn),
   path: "/",
 });
 
-export const authCookieName = cookieName;
+export const getAccessCookieOptions = () => getCookieOptions(env.JWT_EXPIRES_IN);
+
+export const getRefreshCookieOptions = () => getCookieOptions(env.JWT_REFRESH_EXPIRES_IN);
+
+export const getCookieClearOptions = () => ({
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: env.NODE_ENV === "production",
+  path: "/",
+});
+
+export const accessTokenCookieName = accessCookieNameValue;
+export const refreshTokenCookieName = refreshCookieNameValue;
+export const authCookieName = accessCookieNameValue;
+export const legacyAuthCookieName = legacyCookieName;

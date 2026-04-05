@@ -43,16 +43,18 @@ const getAllProviders = async (query: TGetProvidersQuery): Promise<TGetProviders
 
   const whereClause: Prisma.UserWhereInput = {
     role: UserRole.PROVIDER,
-    providerProfile: {
-      is: query.cuisineType
-        ? {
-            cuisineType: {
-              equals: query.cuisineType,
-              mode: "insensitive",
+    ...(query.cuisineType
+      ? {
+          providerProfile: {
+            is: {
+              cuisineType: {
+                equals: query.cuisineType,
+                mode: "insensitive",
+              },
             },
-          }
-        : {},
-    },
+          },
+        }
+      : {}),
     ...(query.searchTerm
       ? {
           OR: [
@@ -106,9 +108,7 @@ const getAllProviders = async (query: TGetProvidersQuery): Promise<TGetProviders
   ]);
 
   return {
-    data: providers
-      .filter((provider) => Boolean(provider.providerProfile))
-      .map(mapProviderSummary),
+    data: providers.map(mapProviderSummary),
     meta: {
       page,
       limit,
@@ -180,7 +180,7 @@ const getProviderById = async (providerId: string): Promise<TProviderDetails> =>
     },
   });
 
-  if (!provider || !provider.providerProfile) {
+  if (!provider) {
     throw new AppError(404, "Provider not found");
   }
 

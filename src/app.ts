@@ -6,13 +6,24 @@ import { env } from "./config/env";
 import { IndexRoutes } from "./app/routes";
 import { globalErrorHandler } from "./app/middleware/globalErrorHandler";
 import { notFound } from "./app/middleware/notFound";
+import { getBetterAuthHandler } from "./lib/betterAuth";
 
 const app = express();
 
 app.use(helmet());
 app.use(cors({ origin: env.CLIENT_URL, credentials: true }));
-app.use(express.json());
 app.use(cookieParser());
+
+app.all("/api/v1/auth/core/*splat", async (req, res, next) => {
+  try {
+    const handler = await getBetterAuthHandler();
+    return handler(req, res, next);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.use(express.json());
 
 app.get("/", (_req, res) => {
   res.status(200).json({
