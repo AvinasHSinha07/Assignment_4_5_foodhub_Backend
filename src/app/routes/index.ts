@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { AuthRoutes } from "../module/auth/auth.route";
+import { CategoryRoutes } from "../module/category/category.route";
 import { HealthRoutes } from "../module/health/health.route";
 import { MealRoutes } from "../module/meal/meal.route";
 import { ProviderRoutes } from "../module/provider/provider.route";
@@ -10,6 +11,7 @@ const router = Router();
 const moduleRoutes = [
 	{ path: "/", route: HealthRoutes },
 	{ path: "/auth", route: AuthRoutes },
+	{ path: "/categories", route: CategoryRoutes },
 	{ path: "/meals", route: MealRoutes },
 	{ path: "/providers", route: ProviderRoutes },
 	{ path: "/protected", route: ProtectedRoutes },

@@ -33,7 +33,20 @@ const getCuisineTypes = catchAsync(async (_req: Request, res: Response) => {
   });
 });
 
+const getProviderById = catchAsync(async (req: Request, res: Response) => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const provider = await ProviderService.getProviderById(id);
+
+  sendResponse(res, {
+    success: true,
+    httpStatusCode: 200,
+    message: "Provider details fetched successfully",
+    data: provider,
+  });
+});
+
 export const ProviderController = {
   getAllProviders,
   getCuisineTypes,
+  getProviderById,
 };

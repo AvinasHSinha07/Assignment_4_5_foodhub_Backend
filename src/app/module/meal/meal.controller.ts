@@ -37,7 +37,35 @@ const getMealCategories = catchAsync(async (_req: Request, res: Response) => {
   });
 });
 
+const getMealById = catchAsync(async (req: Request, res: Response) => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const meal = await MealService.getMealById(id);
+
+  sendResponse(res, {
+    success: true,
+    httpStatusCode: 200,
+    message: "Meal details fetched successfully",
+    data: meal,
+  });
+});
+
+const getMealsByProvider = catchAsync(async (req: Request, res: Response) => {
+  const providerId = Array.isArray(req.params.providerId)
+    ? req.params.providerId[0]
+    : req.params.providerId;
+  const meals = await MealService.getMealsByProvider(providerId);
+
+  sendResponse(res, {
+    success: true,
+    httpStatusCode: 200,
+    message: "Provider meals fetched successfully",
+    data: meals,
+  });
+});
+
 export const MealController = {
   getAllMeals,
   getMealCategories,
+  getMealById,
+  getMealsByProvider,
 };
