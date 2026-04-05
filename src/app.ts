@@ -3,6 +3,9 @@ import cookieParser from "cookie-parser";
 import express from "express";
 import helmet from "helmet";
 import { env } from "./config/env";
+import { IndexRoutes } from "./app/routes";
+import { globalErrorHandler } from "./app/middleware/globalErrorHandler";
+import { notFound } from "./app/middleware/notFound";
 
 const app = express();
 
@@ -19,12 +22,9 @@ app.get("/", (_req, res) => {
   });
 });
 
-app.get("/api/v1/health", (_req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "FoodHub API healthy",
-    timestamp: new Date().toISOString(),
-  });
-});
+app.use("/api/v1", IndexRoutes);
+
+app.use(notFound);
+app.use(globalErrorHandler);
 
 export default app;
