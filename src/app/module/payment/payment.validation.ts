@@ -14,5 +14,16 @@ export const confirmPaymentSchema = createPaymentIntentSchema.extend({
   paymentIntentId: z.string().min(1, "Payment intent id is required"),
 });
 
+export const createOrderPaymentIntentSchema = z.object({
+  orderId: z.string().min(1, "Order id is required"),
+});
+
+export const confirmOrderPaymentSchema = z.object({
+  orderId: z.string().min(1, "Order id is required"),
+  paymentIntentId: z.string().min(1, "Payment intent id is required"),
+});
+
 export type TCreatePaymentIntentValidationInput = z.infer<typeof createPaymentIntentSchema>;
 export type TConfirmPaymentValidationInput = z.infer<typeof confirmPaymentSchema>;
+export type TCreateOrderPaymentIntentValidationInput = z.infer<typeof createOrderPaymentIntentSchema>;
+export type TConfirmOrderPaymentValidationInput = z.infer<typeof confirmOrderPaymentSchema>;

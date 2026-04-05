@@ -24,14 +24,14 @@ const upload = multer({
 
 router.post(
   "/image",
-  checkAuth(UserRole.PROVIDER, UserRole.ADMIN),
+  checkAuth(UserRole.CUSTOMER, UserRole.PROVIDER, UserRole.ADMIN),
   upload.single("image"),
   UploadController.uploadImage,
 );
 
 router.delete(
   "/image/:publicId",
-  checkAuth(UserRole.PROVIDER, UserRole.ADMIN),
+  checkAuth(UserRole.CUSTOMER, UserRole.PROVIDER, UserRole.ADMIN),
   UploadController.deleteImage,
 );
 

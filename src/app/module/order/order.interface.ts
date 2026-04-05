@@ -3,9 +3,12 @@ export type TCreateOrderItemInput = {
   quantity: number;
 };
 
+export type TPaymentMethodInput = "STRIPE" | "CASH_ON_DELIVERY";
+
 export type TCreateOrderInput = {
   deliveryAddress: string;
   items: TCreateOrderItemInput[];
+  paymentMethod?: TPaymentMethodInput;
 };
 
 export type TOrderItemSummary = {
@@ -26,7 +29,7 @@ export type TOrderSummary = {
   deliveryAddress: string;
   orderStatus: string;
   paymentStatus: string;
-  paymentMethod: string;
+  paymentMethod: TPaymentMethodInput;
   stripePaymentIntentId: string | null;
   createdAt: Date;
   updatedAt: Date;

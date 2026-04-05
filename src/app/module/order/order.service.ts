@@ -1,6 +1,12 @@
+import { PaymentMethod } from "@prisma/client";
 import { prisma } from "../../../lib/prisma";
 import AppError from "../../errorHelpers/AppError";
-import type { TCreateOrderInput, TGetMyOrdersResult, TOrderSummary } from "./order.interface";
+import type {
+  TCreateOrderInput,
+  TGetMyOrdersResult,
+  TOrderSummary,
+  TPaymentMethodInput,
+} from "./order.interface";
 
 type TOrderWithRelations = {
   id: string;
@@ -8,7 +14,7 @@ type TOrderWithRelations = {
   deliveryAddress: string;
   orderStatus: string;
   paymentStatus: string;
-  paymentMethod: string;
+  paymentMethod: PaymentMethod;
   stripePaymentIntentId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -32,13 +38,21 @@ type TOrderWithRelations = {
   }[];
 };
 
+const mapPaymentMethod = (paymentMethod: PaymentMethod): TPaymentMethodInput => {
+  if (paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
+    return "CASH_ON_DELIVERY";
+  }
+
+  return "STRIPE";
+};
+
 const mapOrderSummary = (order: TOrderWithRelations): TOrderSummary => ({
   id: order.id,
   totalPrice: Number(order.totalPrice),
   deliveryAddress: order.deliveryAddress,
   orderStatus: order.orderStatus,
   paymentStatus: order.paymentStatus,
-  paymentMethod: order.paymentMethod,
+  paymentMethod: mapPaymentMethod(order.paymentMethod),
   stripePaymentIntentId: order.stripePaymentIntentId,
   createdAt: order.createdAt,
   updatedAt: order.updatedAt,
@@ -170,6 +184,10 @@ const createOrder = async (customerId: string, payload: TCreateOrderInput) => {
         providerId,
         totalPrice,
         deliveryAddress: payload.deliveryAddress.trim(),
+        paymentMethod:
+          payload.paymentMethod === "CASH_ON_DELIVERY"
+            ? PaymentMethod.CASH_ON_DELIVERY
+            : PaymentMethod.STRIPE,
       },
       select: {
         id: true,

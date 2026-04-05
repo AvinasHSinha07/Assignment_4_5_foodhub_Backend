@@ -44,6 +44,46 @@ const confirmPayment = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const createOrderPaymentIntent = catchAsync(async (req: Request, res: Response) => {
+  if (!req.user) {
+    sendResponse(res, {
+      success: false,
+      httpStatusCode: 401,
+      message: "Unauthorized access",
+    });
+    return;
+  }
+
+  const paymentIntent = await PaymentService.createOrderPaymentIntent(req.user.userId, req.body);
+
+  sendResponse(res, {
+    success: true,
+    httpStatusCode: 200,
+    message: "Payment intent created for order successfully",
+    data: paymentIntent,
+  });
+});
+
+const confirmOrderPayment = catchAsync(async (req: Request, res: Response) => {
+  if (!req.user) {
+    sendResponse(res, {
+      success: false,
+      httpStatusCode: 401,
+      message: "Unauthorized access",
+    });
+    return;
+  }
+
+  const order = await PaymentService.confirmOrderPayment(req.user.userId, req.body);
+
+  sendResponse(res, {
+    success: true,
+    httpStatusCode: 200,
+    message: "Payment confirmed for order successfully",
+    data: order,
+  });
+});
+
 const handleWebhook = catchAsync(async (req: Request, res: Response) => {
   const signatureHeader = req.headers["stripe-signature"];
   const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
@@ -69,5 +109,7 @@ const handleWebhook = catchAsync(async (req: Request, res: Response) => {
 export const PaymentController = {
   createPaymentIntent,
   confirmPayment,
+  createOrderPaymentIntent,
+  confirmOrderPayment,
   handleWebhook,
 };

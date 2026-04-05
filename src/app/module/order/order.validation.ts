@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const createOrderSchema = z.object({
   deliveryAddress: z.string().trim().min(10, "Delivery address must be at least 10 characters"),
+  paymentMethod: z.enum(["STRIPE", "CASH_ON_DELIVERY"]).optional(),
   items: z
     .array(
       z.object({

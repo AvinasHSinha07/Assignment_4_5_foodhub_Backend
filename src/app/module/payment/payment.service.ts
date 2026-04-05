@@ -1,10 +1,12 @@
-import { PaymentStatus } from "@prisma/client";
+import { PaymentMethod, PaymentStatus } from "@prisma/client";
 import { prisma } from "../../../lib/prisma";
 import { getStripe, getStripeWebhookSecret } from "../../../lib/stripe";
 import { AppError } from "../../utils/AppError";
 import { OrderService } from "../order/order.service";
 import type {
   TConfirmPaymentInput,
+  TConfirmOrderPaymentInput,
+  TCreateOrderPaymentIntentInput,
   TCreatePaymentIntentInput,
   TPaymentIntentResponse,
 } from "./payment.interface";
@@ -22,6 +24,14 @@ type TOrderQuote = {
   totalPrice: number;
   totalPriceCents: number;
   orderItems: TResolvedOrderItem[];
+};
+
+type TPendingStripeOrder = {
+  id: string;
+  providerId: string;
+  totalPrice: number;
+  totalPriceCents: number;
+  deliveryAddress: string;
 };
 
 const buildOrderQuote = async (payload: TCreatePaymentIntentInput): Promise<TOrderQuote> => {
@@ -122,6 +132,99 @@ const createPaymentIntent = async (
   };
 };
 
+const getPendingStripeOrder = async (customerId: string, orderId: string): Promise<TPendingStripeOrder> => {
+  const order = await prisma.order.findFirst({
+    where: {
+      id: orderId,
+      customerId,
+    },
+    select: {
+      id: true,
+      providerId: true,
+      totalPrice: true,
+      deliveryAddress: true,
+      paymentMethod: true,
+      paymentStatus: true,
+      orderStatus: true,
+    },
+  });
+
+  if (!order) {
+    throw new AppError(404, "Order not found");
+  }
+
+  if (order.orderStatus === "CANCELLED") {
+    throw new AppError(400, "Cancelled orders cannot be paid");
+  }
+
+  if (order.paymentMethod !== PaymentMethod.STRIPE) {
+    throw new AppError(400, "Only Stripe orders can be paid online");
+  }
+
+  if (order.paymentStatus === PaymentStatus.PAID) {
+    throw new AppError(400, "Order is already paid");
+  }
+
+  if (order.paymentStatus !== PaymentStatus.PENDING && order.paymentStatus !== PaymentStatus.FAILED) {
+    throw new AppError(400, "Order is not eligible for online payment");
+  }
+
+  const totalPrice = Number(order.totalPrice);
+
+  return {
+    id: order.id,
+    providerId: order.providerId,
+    totalPrice,
+    totalPriceCents: Math.round(totalPrice * 100),
+    deliveryAddress: order.deliveryAddress,
+  };
+};
+
+const createOrderPaymentIntent = async (
+  customerId: string,
+  payload: TCreateOrderPaymentIntentInput,
+): Promise<TPaymentIntentResponse> => {
+  const order = await getPendingStripeOrder(customerId, payload.orderId);
+  const stripe = getStripe();
+
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: order.totalPriceCents,
+    currency: "usd",
+    automatic_payment_methods: {
+      enabled: true,
+    },
+    metadata: {
+      customerId,
+      providerId: order.providerId,
+      orderId: order.id,
+      totalPrice: order.totalPrice.toFixed(2),
+      deliveryAddress: order.deliveryAddress,
+    },
+  });
+
+  if (!paymentIntent.client_secret) {
+    throw new AppError(500, "Failed to create payment intent");
+  }
+
+  await prisma.order.update({
+    where: {
+      id: order.id,
+    },
+    data: {
+      stripePaymentIntentId: paymentIntent.id,
+      paymentMethod: PaymentMethod.STRIPE,
+      paymentStatus: PaymentStatus.PENDING,
+    },
+  });
+
+  return {
+    paymentIntentId: paymentIntent.id,
+    clientSecret: paymentIntent.client_secret,
+    amount: order.totalPrice,
+    currency: paymentIntent.currency,
+  };
+};
+
 const confirmPayment = async (customerId: string, payload: TConfirmPaymentInput) => {
   const existingOrder = await prisma.order.findFirst({
     where: {
@@ -169,6 +272,7 @@ const confirmPayment = async (customerId: string, payload: TConfirmPaymentInput)
         totalPrice: quote.totalPrice,
         deliveryAddress: quote.deliveryAddress,
         paymentStatus: PaymentStatus.PAID,
+        paymentMethod: PaymentMethod.STRIPE,
         stripePaymentIntentId: paymentIntent.id,
       },
       select: {
@@ -190,6 +294,64 @@ const confirmPayment = async (customerId: string, payload: TConfirmPaymentInput)
   });
 
   return OrderService.getMyOrderById(customerId, createdOrder.id);
+};
+
+const confirmOrderPayment = async (customerId: string, payload: TConfirmOrderPaymentInput) => {
+  const existingPaidOrder = await prisma.order.findFirst({
+    where: {
+      customerId,
+      stripePaymentIntentId: payload.paymentIntentId,
+      paymentStatus: PaymentStatus.PAID,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (existingPaidOrder) {
+    return OrderService.getMyOrderById(customerId, existingPaidOrder.id);
+  }
+
+  const order = await getPendingStripeOrder(customerId, payload.orderId);
+  const stripe = getStripe();
+  const paymentIntent = await stripe.paymentIntents.retrieve(payload.paymentIntentId);
+
+  if (paymentIntent.status !== "succeeded") {
+    throw new AppError(400, "Payment is not completed yet");
+  }
+
+  if (paymentIntent.currency !== "usd") {
+    throw new AppError(400, "Unexpected payment currency");
+  }
+
+  if (paymentIntent.amount_received < order.totalPriceCents) {
+    throw new AppError(400, "Payment amount is insufficient");
+  }
+
+  if (paymentIntent.amount !== order.totalPriceCents) {
+    throw new AppError(400, "Payment amount does not match order total");
+  }
+
+  if (paymentIntent.metadata?.customerId && paymentIntent.metadata.customerId !== customerId) {
+    throw new AppError(403, "Payment intent does not belong to this customer");
+  }
+
+  if (paymentIntent.metadata?.orderId && paymentIntent.metadata.orderId !== order.id) {
+    throw new AppError(403, "Payment intent does not belong to this order");
+  }
+
+  await prisma.order.update({
+    where: {
+      id: order.id,
+    },
+    data: {
+      paymentStatus: PaymentStatus.PAID,
+      paymentMethod: PaymentMethod.STRIPE,
+      stripePaymentIntentId: paymentIntent.id,
+    },
+  });
+
+  return OrderService.getMyOrderById(customerId, order.id);
 };
 
 const handleStripeWebhook = async (rawBody: Buffer, signature: string) => {
@@ -254,5 +416,7 @@ const handleStripeWebhook = async (rawBody: Buffer, signature: string) => {
 export const PaymentService = {
   createPaymentIntent,
   confirmPayment,
+  createOrderPaymentIntent,
+  confirmOrderPayment,
   handleStripeWebhook,
 };
